@@ -1,0 +1,406 @@
+# Các thư viện
+!pip install geotext mapclassify
+
+import pandas as pd
+import numpy as np
+import datetime
+import graphviz
+import geotext
+import geopandas as gpd
+import seaborn as sns
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, silhouette_score
+from sklearn.datasets import load_breast_cancer
+from sklearn.tree import DecisionTreeClassifier, export_text, export_graphviz
+
+# Đọc file
+df_companies = pd.read_csv("/content/drive/MyDrive/KHAI_PHA_DU_LIEU/Bai_Tap_Lon/Data Mining - Doanh Nghiệp/companies_sorted.csv")
+df_companies.head(5)
+df_continent = pd.read_csv("/content/drive/MyDrive/KHAI_PHA_DU_LIEU/Bai_Tap_Lon/Data Mining - Doanh Nghiệp/Continent.csv")
+df_continent.head()
+
+# Xử lý dữ liệu
+# Companies dataset
+# Xóa các cột không cần thiết
+df_companies.drop(['Unnamed: 0','domain','linkedin url'], axis=1, inplace=True)
+# Chuẩn hóa dữ liệu của DataFrame df
+df_companies = df_companies.rename(columns={'name': 'name', 'year founded': 'year_founded', 'industry': 'industry',
+                                            'size range': 'size_range', 'locality': 'locality', 'country': 'country',
+                                            'current employee estimate': 'current_employee_estimate', 'total employee estimate': 'total_employee_estimate'})
+# Chuyển đổi chữ cái đầu tiên của mỗi từ trong chuỗi thành chữ cái in hoa trong danh sách cột
+df_companies.columns = df_companies.columns.str.capitalize()
+# Chuyển đổi dữ liệu trong cột Country - viết hóa chữ cái đầu, các chữ còn lại viết thường
+df_companies['Country'] = df_companies.Country.str.title()
+
+#Kiểm tra giá trị null
+df_companies.isnull().sum()
+
+# Điền giá trị 0
+df_companies = df_companies.fillna(0)
+# Chuyển đổi kiểu dữ liệu sang int
+df_companies['Year_founded'] = df_companies['Year_founded'].astype(int)
+# Xóa các năm sau năm hiện tại (2024)
+today = datetime.date.today()
+df_companies = df_companies[df_companies['Year_founded'] <= today.year]
+
+# Xóa các dòng có giá trị trong cột Year Founded, Industry, Locality, Country bằng 0
+df_companies = df_companies[df_companies['Year_founded'] != 0]
+df_companies = df_companies[df_companies['Industry'] != 0]
+df_companies = df_companies[df_companies['Locality'] != 0]
+df_companies = df_companies[df_companies['Country'] != 0]
+# Kiểm tra dữ liệu trùng lặp
+duplicate_rows = df_companies[df_companies.duplicated(subset="Name")]
+print('Số dòng dữ liệu trùng lặp:', len(duplicate_rows))
+
+# Xóa dữ liệu trùng lặp
+df_companies = df_companies.drop_duplicates(subset="Name")
+
+df_companies
+
+# Continents dataset
+# Kiểm tra số lần trùng lặp của cột Country
+duplicate_rows = df_continent[df_continent.duplicated(subset="Country")]
+print('Số dòng dữ liệu trùng lặp:', len(duplicate_rows))
+df_continent
+df_continent.info()
+
+# Kết hợp hai dataframe lại với nhau
+# Kết hợp 2 dataset (df_companies và df_continent) lại với nhau
+df_companies_continent = pd.merge(df_companies, df_continent,on='Country',how='left')
+df_companies_continent
+
+# Xử lý dữ liệu sau khi đã kết hợp hai dataset
+# Điền giá trị Europe cho các cột Country còn thiếu
+df_companies_continent = df_companies_continent.fillna('Europe')
+# Kiểm tra xem còn giá trị null hay không(True: còn, False: hết)
+df_companies_continent.isnull().any()
+
+df_companies_continent
+
+# Thông tin số lần xuất hiện của mỗi giá trị sau khi xử lý dữ liệu
+# Name
+df_companies_continent.Name.value_counts()
+# Year_founded
+df_companies_continent.Year_founded.value_counts()
+# Industry
+df_companies_continent.Industry.value_counts()
+# Size_range
+df_companies_continent.Size_range.value_counts()
+# Locality
+df_companies_continent.Locality.value_counts()
+# Country
+df_companies_continent.Country.value_counts()
+# Current_employee_estimate
+df_companies_continent.Current_employee_estimate.value_counts()
+# Total_employee_estimate
+df_companies_continent.Total_employee_estimate.value_counts()
+# Continent
+df_companies_continent.Continent.value_counts()
+
+# Trực quan hóa dữ liệu
+industry_employee_sum = df_companies_continent.groupby('Industry')['Total_employee_estimate'].sum().sort_values(ascending=False).head(5)
+# Biều đồ tròn thể hiện Top 5 Ngành Nghề Có Tổng Số Nhân Viên Nhiều Nhất Trong Công Ty
+industrys = ['information technology and services', 'higher education', 'retail', 'financial services', 'hospital & health care']
+fig = go.Figure(data=[go.Pie(labels=industrys, values=industry_employee_sum, hole=.3)])
+fig.update_layout(title_text="Top 5 Ngành Nghề Có Tổng Số Nhân Viên Nhiều Nhất Trong Công Ty")
+fig.show()
+print("Top 5 Ngành Nghề Có Tổng Số Nhân Viên Nhiều Nhất Trong Công Ty")
+print(industry_employee_sum)
+
+df_before_2000 = df_companies_continent[df_companies_continent['Year_founded'] < 2000]
+df_after_2000 = df_companies_continent[df_companies_continent['Year_founded'] >= 2000]
+continent_employee_sum_before_2000 = df_before_2000.groupby('Continent')['Total_employee_estimate'].sum().sort_values(ascending=False).head(5)
+continent_employee_sum_after_2000 = df_after_2000.groupby('Continent')['Total_employee_estimate'].sum().sort_values(ascending=False).head(5)
+# Biều đồ tròn thể hiện Top 5 Lục Địa Có Tổng Số Nhân Viên Nhiều Nhất Trong Công Ty
+#Trước Năm 2000
+industrys = ['North America', 'Europe', 'Asia', 'South America', 'Oceania']
+fig = go.Figure(data=[go.Pie(labels=industrys, values= continent_employee_sum_before_2000, hole=.3)])
+fig.update_layout(title_text="Top 5 Lục Địa Có Tổng Số Nhân Viên Nhiều Nhất Trong Công Ty Trước Năm 2000")
+fig.show()
+print("Top 5 Lục Địa Có Tổng Số Nhân Viên Nhiều Nhất Trong Công Ty Trước Năm 2000")
+print(continent_employee_sum_before_2000)
+#Sau Năm 2000
+industrys = ['North America', 'Europe', 'Asia', 'South America', 'Oceania']
+fig = go.Figure(data=[go.Pie(labels=industrys, values= continent_employee_sum_after_2000, hole=.3)])
+fig.update_layout(title_text="Top 5 Lục Địa Có Tổng Số Nhân Viên Nhiều Nhất Trong Công Ty Sau Năm 2000")
+fig.show()
+print("Top 5 Lục Địa Có Tổng Số Nhân Viên Nhiều Nhất Trong Công Ty Sau Năm 2000")
+print(continent_employee_sum_after_2000)
+
+# Biểu đồ cột thể hiện Các Công Ty Được Thành Lập
+# Trước Năm 2000
+filtered_df = df_companies_continent[df_companies_continent['Year_founded'] < 2000]
+plt.figure(figsize=(10, 6))
+plt.hist(filtered_df['Year_founded'], bins=30, color='green', edgecolor='black')
+plt.title('Các Công Ty Được Thành Lập Trước Năm 2000')
+plt.xlabel('Năm Thành Lập')
+plt.ylabel('Số Lượng Công Ty')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
+print("Các Công Ty Được Thành Lập Trước Năm 2000")
+filtered_df.Year_founded.value_counts()
+
+# Sau Năm 2000
+filtered_df = df_companies_continent[df_companies_continent['Year_founded'] >= 2000]
+plt.figure(figsize=(10, 6))
+plt.hist(filtered_df['Year_founded'], bins=30, color='yellow', edgecolor='black')
+plt.title('Các Công Ty Được Thành Lập Sau Năm 2000')
+plt.xlabel('Năm Thành Lập')
+plt.ylabel('Số Lượng Công Ty')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
+print("Các Công Ty Được Thành Lập Sau Năm 2000")
+filtered_df.Year_founded.value_counts()
+
+# Biều đồ cột thể hiện top 5 ngành nghề xuất hiện nhiều nhất ở công ty
+#Trước 2000
+fillter_df = df_companies_continent[df_companies_continent['Year_founded'] < 2000]
+top_5_industries = fillter_df['Industry'].value_counts().nlargest(5)
+plt.figure(figsize=(10, 6))
+top_5_industries.plot(kind='bar', color='skyblue', edgecolor='black')
+plt.xlabel('Ngành Nghề')
+plt.ylabel('Số Lượng Công Ty')
+plt.title('Top 5 Ngành Nghề Xuất Hiện Nhiều Nhất Ở Công Ty Trước Năm 2000')
+plt.xticks(rotation=45)
+plt.show()
+print("Top 5 Ngành Nghề Xuất Hiện Nhiều Nhất Ở Công Ty Trước Năm 2000")
+print(top_5_industries)
+# Sau 2000
+fillter_df = df_companies_continent[df_companies_continent['Year_founded'] >= 2000]
+top_5_industries = fillter_df['Industry'].value_counts().nlargest(5)
+plt.figure(figsize=(10, 6))
+top_5_industries.plot(kind='bar', color='orange', edgecolor='black')
+plt.xlabel('Ngành Nghề')
+plt.ylabel('Số Lượng Công Ty')
+plt.title('Top 5 Ngành Nghề Xuất Hiện Nhiều Nhất Ở Công Ty Sau Năm 2000')
+plt.xticks(rotation=45)
+plt.show()
+print("Top 5 Ngành Nghề Xuất Hiện Nhiều Nhất Ở Công Ty Sau Năm 2000")
+print(top_5_industries)
+
+counts_df = df_companies_continent['Country'].value_counts().rename_axis('Country').reset_index(name='count')
+top_10_industries = counts_df.nlargest(10, 'count').sort_values(by='count')
+# Vẽ biểu đồ cột
+plt.barh(top_10_industries['Country'], top_10_industries['count'])
+plt.xlabel('Số Lượng')
+plt.ylabel('Quốc Gia')
+plt.title('Top 10 Quốc Gia Có Số Lượng Xuất Hiện Nhiều Nhất')
+plt.show()
+
+IT_industries = [
+ 'animation',
+ 'biotechnology',
+ 'computer & network security',
+ 'computer games',
+ 'computer hardware',
+ 'computer networking',
+ 'computer software',
+ 'consumer electronics',
+ 'defense & space',
+ 'e-learning',
+ 'industrial automation',
+ 'information services',
+ 'information technology and services',
+ 'internet',
+ 'mechanical or industrial engineering',
+ 'program development',
+ 'telecommunications',
+ 'wireless'
+]
+# chứa các hàng (công ty) mà cột "Industry" của chúng nằm trong danh sách IT_industries
+it_frame = df_companies_continent[df_companies_continent.Industry.isin(IT_industries)]
+# đếm số lượng công ty trong mỗi quốc gia
+# groupby: dùng để nhóm dữ liệu
+it_counted = it_frame[['Country', 'Name']].groupby(['Country',], as_index=False).count().rename(columns={'Name':'count'})
+# sắp xếp các quốc gia theo số lượng công ty giảm dần và lấy 10 quốc gia có số lượng công ty nhiều nhất
+it_counted.sort_values(by='count', ascending=False).reset_index(drop=True)
+# sử dụng thư viện GeoPandas để đọc dữ liệu từ tệp tin dữ liệu địa lý.
+# 'naturalearth_lowres' là một tập dữ liệu mẫu có sẵn trong GeoPandas, chứa thông tin địa lý của các quốc gia trên thế giới.
+gdf = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))[['name', 'geometry']]
+gdf.columns = ['country', 'geometry']
+print(gdf.head())
+antarctic_index = int(gdf[gdf['country'] == 'Antarctica'].index.values)
+gdf = gdf.drop(gdf.index[antarctic_index])
+replace = {
+    "United States of America": 'United States',
+    "Bosnia and Herz.": 'Bosnia And Herzegovina',
+    "Central African Rep.": 'Central African Republic',
+    "Côte d'Ivoire": 'Côte D’Ivoire',
+    "Dominican Rep.": 'Dominican Republic',
+    "Dem. Rep. Congo": 'Democratic Republic Of The Congo',
+    "Eq. Guinea": 'Equatorial Guinea',
+    "Dominican Rep.": 'Dominican Republic',
+    "Solomon Is.": 'Solomon Islands',
+    "Trinidad and Tobago": 'Trinidad And Tobago',
+    "S. Sudan": 'South Sudan',
+}
+# thay thế các giá trị trong cột 'country' của GeoDataFrame
+for (n_old, n_new) in replace.items():
+    gdf.country.loc[gdf['country'] == n_old] = n_new
+# tạo ra một tập hợp (set) chứa các quốc gia từ cột 'Country' của DataFrame it_frame
+it_countries = set(it_frame.Country.tolist())
+print("Các quốc gia bị bỏ sót trong bất kỳ tập dữ liệu nào hoặc được đặt tên khác:")
+print(sorted(it_countries.symmetric_difference(set(gdf.country))))
+# Kết hợp lại với nhau
+merged = gdf.merge(it_counted, left_on='country', right_on='Country', how = 'left')
+fig, ax = plt.subplots(1, figsize=(20,15))
+merged.plot(color='grey', ax=ax, label = 'No data')
+merged.dropna().plot(column='count', cmap='rainbow', ax=ax, scheme='natural_breaks', k=7, legend=True, legend_kwds={'loc': 'lower left'})
+plt.title('Số lượng công ty Công nghệ thông tin theo quốc gia')
+# sửa số dấu phẩy động, biến chúng thành số nguyên:
+leg = ax.get_legend()
+for text in leg.get_texts():
+    text.set_text(text.get_text().replace('.00', ''))
+plt.axis('off')
+plt.savefig('it_by_countries.png', bbox_inches='tight')
+
+# Gom cụm
+# Lựa chọn các cột cho mô hình hóa
+all_data_clustering_df = df_companies_continent[["Total_employee_estimate", "Current_employee_estimate"]]
+X = pd.get_dummies(all_data_clustering_df)
+columns=X.columns
+X=StandardScaler().fit_transform(X)
+X=pd.DataFrame(data = X,columns = columns)
+# Tìm số cụm tối ưu sử dụng phương pháp Elbow
+sse = []
+for k in range(1, 11):
+    kmeans = KMeans(n_clusters=k, random_state=123).fit(X)
+    sse.append(kmeans.inertia_)
+# Vẽ biểu đồ Elbow
+plt.plot(range(1, 11), sse, marker='o')
+plt.xlabel('Số lượng cụm')
+plt.ylabel('SSE')
+plt.title('Phương pháp Elbow')
+plt.show()
+
+# Số cụm tối ưu dựa trên biểu đồ Elbow
+num_clusters = 5
+# Áp dụng thuật toán K-means
+kmeans = KMeans(n_clusters=num_clusters, random_state=123)
+kmeans.fit(X)
+# Gán nhãn cụm cho dữ liệu
+X['Cluster'] = kmeans.labels_
+
+# Current_employee_estimate
+plt.scatter(X['Cluster'], X['Current_employee_estimate'], c=X['Cluster'], cmap='viridis')
+plt.xlabel('Cluster')
+plt.ylabel('Ước tính nhân viên hiện tại')
+plt.title('Phân cụm K-means của ước tính nhân viên hiện tại')
+plt.show()
+
+# Total_employee_estimate
+plt.scatter(X['Cluster'], X['Total_employee_estimate'], c=X['Cluster'], cmap='viridis')
+plt.xlabel('Cluster')
+plt.ylabel('Ước tính tổng số nhân viên')
+plt.title('Phân cụm K-means của ước tính tổng số nhân viên')
+plt.show()
+
+# Vẽ biểu đồ gom cụm 2
+def kmeans_display(X, label):
+    K = np.amax(label) + 1
+    X0 = X[label == 0, :]
+    X1 = X[label == 1, :]
+    X2 = X[label == 2, :]
+    plt.plot(X0[:, 0], X0[:, 1], 'b^', markersize = 4, alpha = .8)
+    plt.plot(X1[:, 0], X1[:, 1], 'go', markersize = 4, alpha = .8)
+    plt.plot(X2[:, 0], X2[:, 1], 'rs', markersize = 4, alpha = .8)
+    plt.axis('equal')
+    plt.plot()
+    plt.show()
+
+# Số cụm tối ưu dựa trên biểu đồ Elbow
+num_clusters = 5
+# Áp dụng thuật toán K-means
+kmeans = KMeans(n_clusters=num_clusters, random_state=123).fit(X)
+print("Center found by scikit-learn:\n", kmeans.cluster_centers_)
+pred_label = kmeans.predict(X)
+kmeans_display(X.values, pred_label)
+
+# Số cụm tối ưu dựa trên biểu đồ Elbow
+num_clusters = 5
+# Áp dụng thuật toán K-means
+# "Current_employee_estimate", "Total_employee_estimate"
+kmeans = KMeans(n_clusters=num_clusters, random_state=123).fit(X[["Current_employee_estimate", "Total_employee_estimate"]])
+print("Center found by scikit-learn:\n", kmeans.cluster_centers_)
+pred_label = kmeans.predict(X[["Current_employee_estimate", "Total_employee_estimate"]])
+kmeans_display(X[["Current_employee_estimate", "Total_employee_estimate"]].values, pred_label)
+
+# K-Nearest Neighbors
+# Lựa chọn các cột cho mô hình hóa
+KNN_df = df_companies_continent[["Year_founded", "Size_range", "Total_employee_estimate", "Current_employee_estimate", "Continent"]]
+# Chia dữ liệu thành features (X) và nhãn (y)
+X = KNN_df.drop("Continent", axis=1)
+y = KNN_df["Continent"]
+# Chuyển đổi các cột dữ liệu dạng văn bản sang dạng số hóa
+X = pd.get_dummies(X)
+# Chia dữ liệu thành tập huấn luyện và tập kiểm tra (test data=train data)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+print("Data gốc",X.shape)
+print("Data train",X_train.shape)
+print("Data test",X_test.shape)
+
+# Khởi tạo mô hình KNN với k=5
+knn_model = KNeighborsClassifier(n_neighbors=5)
+knn_model.fit(X_train, y_train)
+# Dự đoán nhãn cho tập kiểm tra
+y_pred = knn_model.predict(X_test)
+# Đánh giá mô hình KNN
+print("KNN Model Evaluation:")
+print(confusion_matrix(y_test, y_pred))
+print(classification_report(y_test, y_pred))
+
+# Khởi tạo mô hình Naive-Bayes
+nb_model = GaussianNB()
+nb_model.fit(X_train, y_train)
+# Dự đoán nhãn cho tập kiểm tra
+y_pred_nb = nb_model.predict(X_test)
+# Đánh giá mô hình Naive-Bayes trên tập kiểm tra
+print("Naive-Bayes Model Evaluation on Test Data:")
+print(confusion_matrix(y_test, y_pred_nb))
+print(classification_report(y_test, y_pred_nb))
+
+print("Độ chính xác",100*accuracy_score(y_test, y_pred))
+
+# Cây quyết định
+features = df_companies_continent[["Year_founded", "Size_range", "Total_employee_estimate", "Current_employee_estimate"]]
+labels = df_companies_continent["Continent"]
+# Chuyển đổi các cột dữ liệu dạng văn bản thành dạng số (phải thực hiện để huấn luyện mô hình)
+features = pd.get_dummies(features)
+# Tách dữ liệu thành hai tập Train và Test
+train_features, test_features, train_labels, test_labels = train_test_split(features, labels, test_size=0.2, random_state=42)
+# Xây dựng mô hình Cây quyết định (Decision Tree)
+clf2 = DecisionTreeClassifier(max_depth=5)
+# Huấn luyện mô hình trên tập Train
+clf2.fit(train_features, train_labels)
+# Tạo biểu diễn đồ thị cho cây quyết định
+dot_data = export_graphviz(clf2, out_file=None, feature_names=list(train_features.columns),
+                           class_names=clf2.classes_, filled=True, rounded=True,
+                           special_characters=True)
+# Hiển thị đồ thị
+graph = graphviz.Source(dot_data)
+graph.render(filename='/content/drive/MyDrive/KHAI_PHA_DU_LIEU/Bai_Tap_Lon/Data Mining - Doanh Nghiệp/dt001', format='png', cleanup=True)
+graph.view()
+# Xem và nhận xét bộ luật của cây quyết định
+tree_rules = export_text(clf2, feature_names=list(features.columns))
+print("Decision Tree Rules:")
+print(tree_rules)
+
+DTC = DecisionTreeClassifier()
+DTC.fit(train_features, train_labels)
+DTC_predict = DTC.predict(test_features)
+print("Độ chính xác: ",100* accuracy_score(test_labels,DTC_predict))
+
+# So sánh 2 Model
+plt.figure(figsize=(10, 5))
+plt.bar(['Decision Tree Classifier','K-Neighbors Classifier'], [accuracy_score(test_labels, DTC_predict), accuracy_score(y_test, y_pred)], color=['skyblue', 'orange'])
+plt.title('So sánh Accuracy của hai mô hình')
+plt.ylabel('Accuracy')
+plt.ylim(0, 1)
+plt.show()
